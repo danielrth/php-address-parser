@@ -34,7 +34,7 @@
       public function fetchAddresses() {
         $addrs = array();
         try {
-              $sql = "SELECT addr1, addr2, city, state, zip  FROM account_MNT_2017_11 ORDER BY AcctID DESC";
+              $sql = "SELECT addr1, addr2, city, state, zip FROM account_MNT_2017_11";
               foreach ($this->conn->query($sql) as $row) {
                 $addrs[] = $row;
               }
@@ -80,6 +80,13 @@
     $wrds = explode(' ', $strAddr2);
     $arrEles = array();
 
+    //exception for po box
+    if ( count($wrds) > 2 && $wrds[0] == 'PO' && $wrds[1] == 'BOX' ) {
+      $arrEles['street_name'] = "PO BOX";
+      $arrEles['primary_number'] = $wrds[2];
+      return $arrEles;
+    }
+
     //primary number
     if ((int)$wrds[0])
       $arrEles['primary_number'] = $wrds[0];
@@ -93,14 +100,15 @@
         $arrEles['street_suffix'] = $wrds[$i];
         
         // street name
-        $stName = "";
-        for ($j = 1; $j < $i; $j++)
-          $stName .= $wrds[$j] . ' ';
-        $arrEles['street_name'] = trim($stName);
+        $arrEles['street_name'] = join(' ', array_slice($wrds, 1, $i-1));
 
         break;
       }
     }
+
+    //exception not found street sufix
+    if ( !isset($arrEles['street_suffix']) )
+      $arrEles['street_name'] = join( ' ', array_slice($wrds, 1, count($wrds)-1) );
 
     //secondary designator
     if ($strAddr1) {
@@ -146,21 +154,30 @@
     $requestXML .= "<Zip5>" . $addrs[$i]['zip'] . "</Zip5>";
     $requestXML .= "<Zip4></Zip4></Address></AddressValidateRequest>";
 
-    $xmlFormattedAddr = callAPIByCurl( $curl, API_BASE_URL . urlencode($requestXML) );
-    if ($xmlFormattedAddr)
-      $xmlFormattedAddr = convertXML2Obj($xmlFormattedAddr);
-    else
-      continue;
-
     $ret = "Addr: ";
     $ret .= $addrs[$i]['addr1'] . " - ";
     $ret .= $addrs[$i]['addr2'];
+
+    $xmlFormattedAddr = callAPIByCurl( $curl, API_BASE_URL . urlencode($requestXML) );
+    if ($xmlFormattedAddr) {
+      $xmlFormattedAddr = convertXML2Obj($xmlFormattedAddr);
+      if (!$xmlFormattedAddr) {
+        echo $ret . "  Not formatted\n";
+        continue;
+      }
+    }
+    else {
+      echo $ret . "  Not formatted\n";
+      continue;
+    }
 
     if ($xmlFormattedAddr->Address2) {
       if ($xmlFormattedAddr->Address1)
         $eles = getAddressElements($xmlFormattedAddr->Address1, $xmlFormattedAddr->Address2);
       else
         $eles = getAddressElements(false, $xmlFormattedAddr->Address2);
+
+      $ret .= '  Formatted: '.$xmlFormattedAddr->Address1.' - '.$xmlFormattedAddr->Address2;
       $ret .= '  Elements: '.$eles['primary_number'].','
         .$eles['street_suffix'].','
         .$eles['street_name'].','
